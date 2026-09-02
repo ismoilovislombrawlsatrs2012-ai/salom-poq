@@ -1,0 +1,19 @@
+[Unit]
+Description=Salom-Poq Telegram Bot
+After=network.target
+
+[Service]
+# Change USER and WorkingDirectory to match your deployment user and path
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/salom-poq
+# Option 1: use environment variables in systemd file (not recommended for secrets)
+Environment=BOT_TOKEN=your_token_here
+Environment=OWNER_ID=7877142193
+Environment=WEATHER_API_KEY=your_openweather_key_here
+# ExecStart: use the system python3 binary
+ExecStart=/usr/bin/python3 /home/YOUR_USER/salom-poq/main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
