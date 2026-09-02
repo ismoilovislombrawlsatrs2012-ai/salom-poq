@@ -6,15 +6,15 @@ import json
 import os
 
 # Owner and default settings
-OWNER_ID = 7877142193  # set from user input
+OWNER_ID = int(os.environ.get("OWNER_ID", "7877142193"))  # set via environment variable if desired
 STATE_FILE = "bot_state.json"
-WEATHER_API_KEY = "257d046bc3fb0a27d808df3e2feb7361"
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "257d046bc3fb0a27d808df3e2feb7361")
 
 # Default initial state: owner is considered away (bot replies on their behalf)
 _default_state = {
     "owner_id": OWNER_ID,
     "away": True,
-    "phone": "YOUR_PHONE_NUMBER"
+    "phone": ""
 }
 
 
@@ -44,7 +44,7 @@ async def start_command_answer(message: Message):
         "Assalomu aleykum! Botga xush kelibsiz.\n"
         "Biror shaharni yozing yoki pastdagi tugmalardan birini tanlang — shaharning ob-havosini va namoz vaqtlarini ko'rsataman!\n\n"
         "Agar men offline bo'lsam, men o'rningizga avtomatik javob beraman.\n"
-        "Agar siz bot egasiga murojaat qilmoqchi bo'lsangiz, telefon: " + (_state.get("phone") or "(yozilmagan)") ,
+        "Agar siz bot egasiga murojaat qilmoqchi bo'lsangiz, telefon: " + (_state.get("phone") or "(yozilmagan)"),
         reply_markup=inline_murkup
     )
 
@@ -162,7 +162,7 @@ async def _send_away_reply_and_forward(message: Message):
     and also forward the message to the owner with context.
     """
     state = _state
-    owner = state.get("owner_id")
+    owner = state.get("owner_id") or OWNER_ID
     phone = state.get("phone") or "(telefon berilmagan)"
 
     away_text = (
@@ -213,7 +213,7 @@ async def incoming_message_autoreply(message: Message):
         return
 
     state = _state
-    owner = state.get("owner_id")
+    owner = state.get("owner_id") or OWNER_ID
 
     # If the message is from the owner, do nothing here (owner commands handled separately)
     if message.from_user and message.from_user.id == owner:
@@ -226,7 +226,7 @@ async def incoming_message_autoreply(message: Message):
 
 # Owner-only commands to control away mode and phone
 async def away_command(message: Message):
-    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+    if not message.from_user or message.from_user.id != (_state.get("owner_id") or OWNER_ID):
         return
     _state["away"] = True
     save_state(_state)
@@ -234,7 +234,7 @@ async def away_command(message: Message):
 
 
 async def back_command(message: Message):
-    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+    if not message.from_user or message.from_user.id != (_state.get("owner_id") or OWNER_ID):
         return
     _state["away"] = False
     save_state(_state)
@@ -243,7 +243,7 @@ async def back_command(message: Message):
 
 async def setphone_command(message: Message):
     """Usage: /setphone +998901234567"""
-    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+    if not message.from_user or message.from_user.id != (_state.get("owner_id") or OWNER_ID):
         return
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
@@ -256,7 +256,7 @@ async def setphone_command(message: Message):
 
 
 async def status_command(message: Message):
-    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+    if not message.from_user or message.from_user.id != (_state.get("owner_id") or OWNER_ID):
         return
     away = _state.get("away")
     phone = _state.get("phone")
