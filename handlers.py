@@ -2,14 +2,49 @@ from aiogram.types import Message, CallbackQuery
 from keyboards import inline_murkup
 import aiohttp
 import urllib.parse
+import json
+import os
 
+# Owner and default settings
+OWNER_ID = 7877142193  # set from user input
+STATE_FILE = "bot_state.json"
 WEATHER_API_KEY = "257d046bc3fb0a27d808df3e2feb7361"
+
+# Default initial state: owner is considered away (bot replies on their behalf)
+_default_state = {
+    "owner_id": OWNER_ID,
+    "away": True,
+    "phone": "YOUR_PHONE_NUMBER"
+}
+
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return _default_state.copy()
+    return _default_state.copy()
+
+
+def save_state(state: dict):
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+_state = load_state()
 
 
 async def start_command_answer(message: Message):
     await message.answer(
         "Assalomu aleykum! Botga xush kelibsiz.\n"
-        "Biror shaharni yozing yoki pastdagi tugmalardan birini tanlang — shaharning ob-havosini va namoz vaqtlarini ko'rsataman!",
+        "Biror shaharni yozing yoki pastdagi tugmalardan birini tanlang — shaharning ob-havosini va namoz vaqtlarini ko'rsataman!\n\n"
+        "Agar men offline bo'lsam, men o'rningizga avtomatik javob beraman.\n"
+        "Agar siz bot egasiga murojaat qilmoqchi bo'lsangiz, telefon: " + (_state.get("phone") or "(yozilmagan)") ,
         reply_markup=inline_murkup
     )
 
@@ -103,6 +138,7 @@ async def Get_ob_havo_callback(callback: CallbackQuery):
 
 
 async def handle_city_message(message: Message):
+    # Keep existing weather behavior if user sends a city name directly
     city_name = (message.text or "").strip()
     if not city_name or city_name.startswith("/"):
         return
@@ -116,3 +152,112 @@ async def handle_city_message(message: Message):
         await message.answer(str(e))
     except Exception:
         await message.answer("Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring.")
+
+
+# --- Away / auto-reply behavior ---
+async def _send_away_reply_and_forward(message: Message):
+    """
+    When owner is away, reply to incoming messages and forward them to the owner.
+    Works for private and group chats. For groups, the bot will reply in the group
+    and also forward the message to the owner with context.
+    """
+    state = _state
+    owner = state.get("owner_id")
+    phone = state.get("phone") or "(telefon berilmagan)"
+
+    away_text = (
+        "Salom! Bot egasi hozir offline.\n"
+        "Sizning xabaringiz qabul qilindi — tez orada javob berish uchun ular bilan bog'laning.\n\n"
+        f"Murojat uchun telefon: {phone}\n\n"
+        "Agar shoshilinch bo'lsa, telefon orqali murojaat qiling."
+    )
+
+    # Reply in the same chat (private or group)
+    try:
+        # If group, reply to message; in private chat, just send
+        await message.reply(away_text)
+    except Exception:
+        try:
+            await message.answer(away_text)
+        except Exception:
+            pass
+
+    # Forward original message to owner and add context
+    if owner:
+        try:
+            # forward the original message for owner to see
+            await message.forward(chat_id=owner)
+        except Exception:
+            # if forwarding fails, send a textual summary
+            try:
+                chat = message.chat
+                chat_info = f"Chat: {chat.title or chat.username or chat.id} (id={chat.id})"
+                sender = message.from_user
+                sender_info = f"From: {sender.full_name} (id={sender.id})"
+                snippet = (message.text or "<non-text message>")[:800]
+                await message.bot.send_message(
+                    owner,
+                    f"[{chat_info}] {sender_info}\n\n{snippet}"
+                )
+            except Exception:
+                pass
+
+
+async def incoming_message_autoreply(message: Message):
+    """
+    General handler for incoming messages. If owner is away and sender is not the owner,
+    bot replies on owner's behalf and forwards the message to the owner.
+    """
+    # ignore messages sent by the bot itself
+    if message.from_user and message.from_user.is_bot:
+        return
+
+    state = _state
+    owner = state.get("owner_id")
+
+    # If the message is from the owner, do nothing here (owner commands handled separately)
+    if message.from_user and message.from_user.id == owner:
+        return
+
+    # If owner is away, auto-reply and forward
+    if state.get("away"):
+        await _send_away_reply_and_forward(message)
+
+
+# Owner-only commands to control away mode and phone
+async def away_command(message: Message):
+    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+        return
+    _state["away"] = True
+    save_state(_state)
+    await message.answer("Siz hozir offline rejimidasiz — bot endi o'rningizga javob beradi.")
+
+
+async def back_command(message: Message):
+    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+        return
+    _state["away"] = False
+    save_state(_state)
+    await message.answer("Siz hozir online — bot avtomatik javobni o'chirdi.")
+
+
+async def setphone_command(message: Message):
+    """Usage: /setphone +998901234567"""
+    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+        return
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Iltimos telefon raqamni ko'rsating. Misol: /setphone +998901234567")
+        return
+    phone = args[1].strip()
+    _state["phone"] = phone
+    save_state(_state)
+    await message.answer(f"Telefon raqam yangilandi: {phone}")
+
+
+async def status_command(message: Message):
+    if not message.from_user or message.from_user.id != _state.get("owner_id"):
+        return
+    away = _state.get("away")
+    phone = _state.get("phone")
+    await message.answer(f"Away: {away}\nPhone: {phone}")
